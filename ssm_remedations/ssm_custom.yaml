@@ -1,0 +1,50 @@
+schemaVersion: '0.3'
+description: Isolate Compromised EC2 instance
+parameters:
+  InstanceId:
+    type: String
+    description: The ID of the EC2 instance to isolate
+mainSteps:
+  - name: GetInstanceDetails
+    action: 'aws:executeAwsApi'
+    inputs:
+      Service: ec2
+      Api: DescribeInstances
+      InstanceIds:
+        - '{{ InstanceId }}'
+    outputs:
+      - Name: VolumeId
+        Selector: '$.Reservations[0].Instances[0].BlockDeviceMappings[0].Ebs.VolumeId'
+        Type: String
+
+  - name: CreateSnapshot
+    action: 'aws:executeAwsApi'
+    inputs:
+      Service: ec2
+      Api: CreateSnapshot
+      VolumeId: '{{ GetInstanceDetails.VolumeId }}'
+      Description: 'Forensics snapshot for security incident'
+
+  - name: DetachSecurityGroup
+    action: 'aws:executeAwsApi'
+    inputs:
+      Service: ec2
+      Api: ModifyInstanceAttribute
+      InstanceId: '{{ InstanceId }}'
+      Groups:
+        - 'sg-isolated'  # Pre-created quarantine SG with no rules
+
+  - name: StopInstance
+    action: 'aws:changeInstanceState'
+    inputs:
+      InstanceIds:
+        - '{{ InstanceId }}'
+      DesiredState: stopped
+
+  - name: SendNotification
+    action: 'aws:executeAwsApi'
+    inputs:
+      Service: sns
+      Api: Publish
+      TopicArn: 'arn:aws:sns:{{global:REGION}}:{{global:ACCOUNT_ID}}:secureguard-alerts'
+      Message: 'EC2 instance {{ InstanceId }} has been isolated'

@@ -1,0 +1,20 @@
+[
+  "severity_numeric",
+  "type_encoded",
+  "ip_reputation",
+  "hour_of_day",
+  "day_of_week",
+  "geo_anomaly",
+  "baseline_deviation",
+  "failed_login_attempts_24h",
+  "source_port",
+  "destination_port",
+  "bytes_transferred",
+  "packets_sent",
+  "connection_duration_sec",
+  "is_known_malicious_ip",
+  "iam_principal_age_days",
+  "account_age_days",
+  "previous_incidents_count",
+  "mfa_enabled"
+]

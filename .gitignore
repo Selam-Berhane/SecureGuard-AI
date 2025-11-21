@@ -1,0 +1,113 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Terraform
+**/.terraform/*
+**/.terraform.lock.hcl
+terraform/securityhub.tf
+terraform/tfplan
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+*.tfvars
+*.tfvars.json
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+terraform/*.zip
+*.zip
+
+# AWS
+.aws/
+*.pem
+credentials
+config
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+*.out
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# SageMaker
+sagemaker/training/*.tar.gz
+sagemaker/deploying/deployment_infoscripts.json
+sagemaker/deploying/create_endpoint.py
+/tmp/
+
+# Lambda packages
+lambda/**/*.zip
+lambda/**/package/
+*.zip  # Catch all Lambda deployment packages
+
+# Dataset (if large)
+dataset/*.csv
+dataset/*.parquet
+dataset/TRAINING_DATA_QUICK_REFERENCE.md
+dataset/TRAINING_DATA_SUMMARY.md
+dataset/TRAINING_DATA_GUIDE.md
+dataset/generate_training_data.py
+dataset/README.md
+
+# Model artifacts
+*.pkl
+*.h5
+*.pb
+model_artifacts/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# OS
+Thumbs.db
+
+# Secrets and API Keys
+**/secrets.json
+**/*secret*
+**/*apikey*
+**/*password*
+api_keys.txt
+
+# AWS Account-specific
+account_id.txt
+terraform.tfplan
+*.backup
