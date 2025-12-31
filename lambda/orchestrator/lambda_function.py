@@ -1,6 +1,7 @@
 import json
 import boto3
 import os
+from decimal import Decimal
 
 sagemaker_runtime = boto3.client('sagemaker-runtime')
 sns = boto3.client('sns')
@@ -59,13 +60,13 @@ def lambda_handler(event, context):
     # Decision engine
     action_taken = None
     if threat_score >= 90 and confidence >= 0.85:
-        print("🚨 Critical threat detected - Remediating")
+        print("Critical threat detected - Remediating")
         action_taken = remediate(event)
     elif threat_score >= 70:
-        print("⚠️  High threat - Alerting security team")
+        print("High threat - Alerting security team")
         action_taken = alert_security_team(event, threat_score)
     else:
-        print("ℹ️  Low/Medium threat - Logged only")
+        print("Low/Medium threat - Logged only")
         action_taken = "logged"
     
     return {
@@ -90,7 +91,7 @@ def prepare_features(finding):
         finding.get('ip_reputation', 0),
         finding.get('hour_of_day', 12),
         finding.get('day_of_week', 0),
-        1 if finding.get('source_ip', '').startswith(('10.', '192.168', '172.')) else 0,
+        finding.get('geo_anomaly', 0),
         finding.get('baseline_deviation', 0.5),
         10,  # failed_login_attempts_24h
         22,  # source_port
@@ -100,21 +101,22 @@ def prepare_features(finding):
         300,  # connection_duration_sec
         1 if finding.get('ip_reputation', 0) > 80 else 0,
         100,  # iam_principal_age_days
-        200,  # account_age_days
-        0    # previous_incidents_count
+        200 , # account_age_days
+        0, # previous_incidents_count 
+        0   # mfa_enabled 
     ]
     
     return features
 
-def log_prediction(finding, threat_score, confidence):    
+def log_prediction(finding, threat_score, confidence):
     try:
         table_name = os.environ.get('DYNAMODB_TABLE', 'secureguard-ai-findings')
         table = dynamodb.Table(table_name)
         table.put_item(Item={
             'finding_id': finding['finding_id'],
             'timestamp': finding['timestamp'],
-            'threat_score': str(threat_score),
-            'confidence': str(confidence),
+            'threat_score': Decimal(str(threat_score)),
+            'confidence': Decimal(str(confidence)),
             'severity': finding['severity'],
             'type': finding['type'],
             'account_id': finding['account_id']
