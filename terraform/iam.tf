@@ -33,11 +33,8 @@ resource "aws_iam_role" "lambda_orchestrator" {
   }
 }
 
-################################################################################
-# ENRICHER LAMBDA IAM POLICY
-# Purpose: Enrich GuardDuty findings with metadata and store to S3
-# Risk Level: LOW (read-only operations + S3 write)
-################################################################################
+
+# Enricher Lambda IAM Policy
 
 data "aws_iam_policy_document" "lambda_enricher_custom" {
   # S3 Write Access - Store enriched findings to data lake
@@ -85,11 +82,7 @@ data "aws_iam_policy_document" "lambda_enricher_custom" {
   }
 
   # IAM Read Access - Feature extraction for ML model
-  # Reason: Account-level operations, cannot scope to specific resources
-  # - GetUser: Get IAM principal age and creation date
-  # - ListMFADevices: Check MFA status for security posture
-  # - GenerateCredentialReport: Create report for account age calculation
-  # - GetCredentialReport: Read root user creation time = account age
+
   statement {
     sid    = "IAMReadOnlyForFeatures"
     effect = "Allow"
@@ -111,11 +104,9 @@ resource "aws_iam_policy" "lambda_enricher_custom" {
   policy      = data.aws_iam_policy_document.lambda_enricher_custom.json
 }
 
-################################################################################
-# ORCHESTRATOR LAMBDA IAM POLICY
+# Orchestrator Lambda IAM Policy
 # Purpose: ML inference and automated threat remediation
 # Risk Level: HIGH (destructive IAM/EC2 operations)
-################################################################################
 
 data "aws_iam_policy_document" "lambda_orchestrator_custom" {
   # SageMaker Inference - Invoke ML model for threat scoring

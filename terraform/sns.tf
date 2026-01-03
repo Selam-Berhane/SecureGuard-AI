@@ -24,9 +24,6 @@ resource "aws_sns_topic_subscription" "security_email" {
   protocol  = "email"
   endpoint  = var.receiver_email
 
-  # Email subscriptions require manual confirmation
-  # Terraform will create the subscription in "PendingConfirmation" state
-  # User must click the confirmation link sent to their email
 }
 
 # SNS Topic Policy - Allow Lambda to publish

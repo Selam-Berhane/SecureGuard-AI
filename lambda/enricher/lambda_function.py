@@ -95,55 +95,137 @@ def extract_source_ip(detail):
 
 def get_ip_reputation(source_ip):
   """
-  Check IP reputation using AbuseIPDB API.
-  Returns abuse confidence score: 0-100 (0=clean, 100=highly abusive)
+  Multi-tier IP reputation lookup strategy.
+  Tier 1: AlienVault OTX (primary, free, no API key required)
+  Tier 2: AbuseIPDB (fallback, requires optional API key)
+  Tier 3: Neutral score (50)
+
+  Returns: Reputation score 0-100 (0=clean, 100=highly malicious)
   """
   if source_ip == 'unknown':
     return 0
 
   # Check if IP is in private range
   if source_ip.startswith('10.') or source_ip.startswith('192.168.') or source_ip.startswith('172.'):
-      return 10  # Low risk - internal IP
+    return 10  # Low risk - internal IP
 
-  # Get API key from environment variable
+  # Tier 1: Try AlienVault OTX first (free, no API key needed)
+  otx_score = check_otx_reputation(source_ip)
+  if otx_score is not None:
+    print(f"IP {source_ip} reputation from OTX: {otx_score}")
+    return otx_score
+
+  # Tier 2: Fallback to AbuseIPDB (optional API key)
+  abuseipdb_score = check_abuseipdb_reputation(source_ip)
+  if abuseipdb_score is not None:
+    print(f"IP {source_ip} reputation from AbuseIPDB: {abuseipdb_score}")
+    return abuseipdb_score
+
+  # Tier 3: Final fallback - neutral score
+  print(f"IP {source_ip} reputation unavailable, using neutral score")
+  return 50
+
+
+def check_otx_reputation(source_ip):
+  """
+  Check IP reputation using AlienVault OTX
+  """
+  try:
+    # OTX API endpoint for IP reputation
+    url = f"https://otx.alienvault.com/api/v1/indicators/IPv4/{source_ip}/reputation"
+
+    headers = {
+      'Accept': 'application/json',
+      'User-Agent': 'SecureGuard-AI/1.0'
+    }
+
+    # Add API key if available (optional, increases rate limit)
+    otx_api_key = os.environ.get('OTX_API_KEY')
+    if otx_api_key:
+      headers['X-OTX-API-KEY'] = otx_api_key
+
+    response = requests.get(url, headers=headers, timeout=5)
+
+    if response.status_code == 200:
+      data = response.json()
+
+      # OTX returns reputation score 0-7 (higher = more malicious)
+      # Convert to 0-100 scale for consistency
+      reputation = data.get('reputation', 0)
+
+      # Also check threat scores from pulses
+      threat_score = 0
+      if 'pulses' in data:
+        pulse_count = len(data['pulses'])
+        # More pulses = higher threat (cap at 100)
+        threat_score = min(pulse_count * 10, 100)
+
+      # Combine reputation and pulse-based scores
+      if reputation >= 5:  # High OTX reputation score
+        combined_score = 90 + (reputation - 5) * 5  # 90-100 range
+      elif reputation >= 3:
+        combined_score = 70 + (reputation - 3) * 10  # 70-90 range
+      elif reputation >= 1:
+        combined_score = 40 + (reputation - 1) * 15  # 40-70 range
+      else:
+        combined_score = threat_score  # Use pulse-based score
+
+      return min(int(combined_score), 100)
+
+    elif response.status_code == 404:
+      # IP not found in OTX database = likely clean
+      return 0
+
+    else:
+      print(f"OTX API error: {response.status_code} - {response.text}")
+      return None  # Trigger fallback
+
+  except requests.exceptions.Timeout:
+    print(f"OTX timeout for {source_ip}")
+    return None
+  except Exception as e:
+    print(f"OTX error: {e}")
+    return None
+
+
+def check_abuseipdb_reputation(source_ip):
+  """
+  Check IP reputation using AbuseIPDB (fallback source).
+  """
   api_key = os.environ.get('ABUSEIPDB_API_KEY')
 
   if not api_key:
-    # Fallback to demo logic if no API key configured
-    print("Warning: ABUSEIPDB_API_KEY not set, using fallback logic")
-    hash_value = sum(ord(c) for c in source_ip)
-    return (hash_value % 100)
+    print("ABUSEIPDB_API_KEY not set, skipping AbuseIPDB check")
+    return None
 
   try:
     response = requests.get(
-      f"https://api.abuseipdb.com/api/v2/check",
+      "https://api.abuseipdb.com/api/v2/check",
       headers={
         'Key': api_key,
         'Accept': 'application/json'
       },
       params={
         'ipAddress': source_ip,
-        'maxAgeInDays': '90'  # Check reports from last 90 days
+        'maxAgeInDays': '90'
       },
-      timeout=5  # 5 second timeout
+      timeout=5
     )
 
     if response.status_code == 200:
       data = response.json()
-      # Return the abuse confidence score (0-100)
       score = data.get('data', {}).get('abuseConfidenceScore', 0)
-      print(f"IP {source_ip} reputation score: {score}")
       return score
     else:
-      print(f"AbuseIPDB API error: {response.status_code} - {response.text}")
-      return 50  # Return neutral score on error
+      print(f"AbuseIPDB API error: {response.status_code}")
+      return None
 
   except requests.exceptions.Timeout:
-    print(f"Timeout checking IP reputation for {source_ip}")
-    return 50
+    print(f"AbuseIPDB timeout for {source_ip}")
+    return None
   except Exception as e:
-    print(f"Error checking IP reputation: {e}")
-    return 50  # Return neutral score on error
+    print(f"AbuseIPDB error: {e}")
+    return None
 
 
 def extract_network_features(finding):
