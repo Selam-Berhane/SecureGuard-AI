@@ -17,14 +17,6 @@ mainSteps:
         Selector: '$.Reservations[0].Instances[0].BlockDeviceMappings[0].Ebs.VolumeId'
         Type: String
 
-  - name: CreateSnapshot
-    action: 'aws:executeAwsApi'
-    inputs:
-      Service: ec2
-      Api: CreateSnapshot
-      VolumeId: '{{ GetInstanceDetails.VolumeId }}'
-      Description: 'Forensics snapshot for security incident'
-
   - name: DetachSecurityGroup
     action: 'aws:executeAwsApi'
     inputs:
@@ -33,6 +25,14 @@ mainSteps:
       InstanceId: '{{ InstanceId }}'
       Groups:
         - 'sg-isolated'  # Pre-created quarantine SG with no rules
+
+  - name: CreateSnapshot
+    action: 'aws:executeAwsApi'
+    inputs:
+      Service: ec2
+      Api: CreateSnapshot
+      VolumeId: '{{ GetInstanceDetails.VolumeId }}'
+      Description: 'Forensics snapshot for security incident'
 
   - name: StopInstance
     action: 'aws:changeInstanceState'
