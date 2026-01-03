@@ -22,6 +22,20 @@ variable "demo_mode" {
   default     = false
 }
 
+variable "otx_api_key" {
+  type        = string
+  description = "AlienVault OTX API key (optional, for 10K req/hour vs 1K free)"
+  sensitive   = true
+  default     = ""
+}
+
+variable "abuseipdb_api_key" {
+  type        = string
+  description = "AbuseIPDB API key (optional fallback if OTX fails)"
+  sensitive   = true
+  default     = ""
+}
+
 variable "enable_guardduty" {
   description = "Enable GuardDuty monitoring"
   type        = bool
@@ -62,4 +76,15 @@ variable "sagemaker_serverless_max_concurrency" {
   description = "SageMaker serverless max concurrent invocations"
   type        = number
   default     = 5
+}
+
+variable "receiver_email" {
+  description = "Email address to receive security alert notifications"
+  type        = string
+  sensitive   = true
+
+  validation {
+    condition     = can(regex("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$", var.receiver_email))
+    error_message = "The receiver_email must be a valid email address."
+  }
 }

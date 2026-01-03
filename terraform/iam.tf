@@ -13,165 +13,220 @@ data "aws_iam_policy_document" "lambda_assume_role" {
   }
 }
 
-# Lambda execution role
-resource "aws_iam_role" "lambda" {
-  name               = "${var.project_name}-lambda-role"
+# Enricher Lambda execution role
+resource "aws_iam_role" "lambda_enricher" {
+  name               = "${var.project_name}-lambda-enricher-role"
   assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
 
   tags = {
-    Name = "${var.project_name}-lambda-role"
+    Name = "${var.project_name}-lambda-enricher-role"
   }
 }
 
-# Lambda custom policy
-data "aws_iam_policy_document" "lambda_custom" {
-  # S3 access
+# Orchestrator Lambda execution role
+resource "aws_iam_role" "lambda_orchestrator" {
+  name               = "${var.project_name}-lambda-orchestrator-role"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
+
+  tags = {
+    Name = "${var.project_name}-lambda-orchestrator-role"
+  }
+}
+
+################################################################################
+# ENRICHER LAMBDA IAM POLICY
+# Purpose: Enrich GuardDuty findings with metadata and store to S3
+# Risk Level: LOW (read-only operations + S3 write)
+################################################################################
+
+data "aws_iam_policy_document" "lambda_enricher_custom" {
+  # S3 Write Access - Store enriched findings to data lake
+  # Scoped to: raw-findings prefix only
   statement {
-    sid    = "S3Access"
+    sid    = "S3WriteEnrichedFindings"
     effect = "Allow"
 
     actions = [
-      "s3:PutObject",
-      "s3:GetObject",
-      "s3:ListBucket"
+      "s3:PutObject"
     ]
 
     resources = [
-      aws_s3_bucket.datalake.arn,
-      "${aws_s3_bucket.datalake.arn}/*"
+      "${aws_s3_bucket.datalake.arn}/raw-findings/*"
     ]
   }
 
-  # KMS access
+  # KMS Encryption - Required for S3 ServerSideEncryption
+  # Scoped to: Data lake KMS key only
   statement {
-    sid    = "KMSAccess"
+    sid    = "KMSEncryptS3Objects"
     effect = "Allow"
 
     actions = [
       "kms:Decrypt",
-      "kms:Encrypt",
-      "kms:GenerateDataKey",
-      "kms:DescribeKey"
+      "kms:GenerateDataKey"
     ]
 
     resources = [aws_kms_key.datalake.arn]
   }
 
-  # SageMaker invoke
+  # Lambda Invoke - Call orchestrator Lambda with enriched data
+  # Scoped to: Orchestrator Lambda only
   statement {
-    sid    = "SageMakerInvoke"
-    effect = "Allow"
-
-    actions = [
-      "sagemaker:InvokeEndpoint"
-    ]
-
-    resources = ["*"]
-  }
-
-  # DynamoDB access
-  statement {
-    sid    = "DynamoDBAccess"
-    effect = "Allow"
-
-    actions = [
-      "dynamodb:PutItem",
-      "dynamodb:GetItem",
-      "dynamodb:Query",
-      "dynamodb:Scan"
-    ]
-
-    resources = [aws_dynamodb_table.findings.arn]
-  }
-
-  # Lambda invocation (for Enricher -> Orchestrator)
-  statement {
-    sid    = "LambdaInvoke"
+    sid    = "InvokeOrchestratorLambda"
     effect = "Allow"
 
     actions = [
       "lambda:InvokeFunction"
     ]
 
-    resources = ["arn:aws:lambda:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:function:${var.project_name}-*"]
+    resources = [
+      "arn:aws:lambda:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:function:${var.project_name}-orchestrator"
+    ]
   }
 
-  # SNS publish
+  # IAM Read Access - Feature extraction for ML model
+  # Reason: Account-level operations, cannot scope to specific resources
+  # - GetUser: Get IAM principal age and creation date
+  # - ListMFADevices: Check MFA status for security posture
+  # - GenerateCredentialReport: Create report for account age calculation
+  # - GetCredentialReport: Read root user creation time = account age
   statement {
-    sid    = "SNSPublish"
+    sid    = "IAMReadOnlyForFeatures"
+    effect = "Allow"
+
+    actions = [
+      "iam:GetUser",
+      "iam:ListMFADevices",
+      "iam:GenerateCredentialReport",
+      "iam:GetCredentialReport"
+    ]
+
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_policy" "lambda_enricher_custom" {
+  name        = "${var.project_name}-lambda-enricher-policy"
+  description = "Least-privilege policy for Enricher Lambda - data collection and feature extraction"
+  policy      = data.aws_iam_policy_document.lambda_enricher_custom.json
+}
+
+################################################################################
+# ORCHESTRATOR LAMBDA IAM POLICY
+# Purpose: ML inference and automated threat remediation
+# Risk Level: HIGH (destructive IAM/EC2 operations)
+################################################################################
+
+data "aws_iam_policy_document" "lambda_orchestrator_custom" {
+  # SageMaker Inference - Invoke ML model for threat scoring
+  # Scoped to: SecureGuard endpoint only
+  statement {
+    sid    = "SageMakerInvokeEndpoint"
+    effect = "Allow"
+
+    actions = [
+      "sagemaker:InvokeEndpoint"
+    ]
+
+    resources = [
+      "arn:aws:sagemaker:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:endpoint/${var.project_name}-threat-classifier"
+    ]
+  }
+
+  # DynamoDB Write - Log ML predictions and actions taken
+  # Scoped to: Findings table only
+  statement {
+    sid    = "DynamoDBWritePredictions"
+    effect = "Allow"
+
+    actions = [
+      "dynamodb:PutItem"
+    ]
+
+    resources = [aws_dynamodb_table.findings.arn]
+  }
+
+  # SNS Alerts - Notify security team of high-severity threats
+  # Scoped to: SecureGuard SNS topics only
+  statement {
+    sid    = "SNSPublishAlerts"
     effect = "Allow"
 
     actions = [
       "sns:Publish"
     ]
 
-    resources = ["*"]
+    resources = [
+      "arn:aws:sns:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:${var.project_name}-*"
+    ]
   }
 
-  # Systems Manager (for remediation)
+  # SSM Automation - Execute EC2 isolation automation
+  # Scoped to: SecureGuard SSM documents only
+  # Reason: Executes automated remediation workflows
   statement {
-    sid    = "SSMAccess"
+    sid    = "SSMExecuteRemediation"
     effect = "Allow"
 
     actions = [
-      "ssm:StartAutomationExecution",
-      "ssm:GetAutomationExecution",
-      "ssm:DescribeDocument"
+      "ssm:StartAutomationExecution"
     ]
 
-    resources = ["*"]
-  }
-
-  # EC2 (for remediation)
-  statement {
-    sid    = "EC2Remediation"
-    effect = "Allow"
-
-    actions = [
-      "ec2:ModifyInstanceAttribute",
-      "ec2:CreateSnapshot",
-      "ec2:DescribeInstances",
-      "ec2:CreateNetworkAclEntry",
-      "ec2:DescribeSecurityGroups",
-      "ec2:DescribeSnapshots"
+    resources = [
+      "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:automation-definition/SecureGuard-*"
     ]
-
-    resources = ["*"]
   }
 
-  # IAM (for credential revocation)
+  # IAM Remediation - Revoke compromised credentials
+  # Reason: Account-level operations for security incident response
+  # - ListAccessKeys: Find all access keys for compromised user
+  # - DeleteAccessKey: Remove compromised keys
+  # - AttachUserPolicy: Attach AWSDenyAll to block further access
+  # WARNING: Destructive operations - use with caution
   statement {
-    sid    = "IAMRemediation"
+    sid    = "IAMRevokeCompromisedCredentials"
     effect = "Allow"
 
     actions = [
-      "iam:DeleteAccessKey",
       "iam:ListAccessKeys",
-      "iam:AttachUserPolicy",
-      "iam:GetUser"
+      "iam:DeleteAccessKey",
+      "iam:AttachUserPolicy"
     ]
 
     resources = ["*"]
   }
 }
 
-# Create custom policy
-resource "aws_iam_policy" "lambda_custom" {
-  name        = "${var.project_name}-lambda-custom-policy"
-  description = "Custom policy for SecureGuard AI Lambda functions"
-  policy      = data.aws_iam_policy_document.lambda_custom.json
+resource "aws_iam_policy" "lambda_orchestrator_custom" {
+  name        = "${var.project_name}-lambda-orchestrator-policy"
+  description = "Least-privilege policy for Orchestrator Lambda - ML inference and threat remediation"
+  policy      = data.aws_iam_policy_document.lambda_orchestrator_custom.json
 }
 
-# Attach managed policy (basic execution)
-resource "aws_iam_role_policy_attachment" "lambda_basic" {
-  role       = aws_iam_role.lambda.name
+################################################################################
+# ATTACH POLICIES TO ROLES
+################################################################################
+
+# Enricher Lambda - Basic execution + custom permissions
+resource "aws_iam_role_policy_attachment" "enricher_basic" {
+  role       = aws_iam_role.lambda_enricher.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-# Attach custom policy
-resource "aws_iam_role_policy_attachment" "lambda_custom" {
-  role       = aws_iam_role.lambda.name
-  policy_arn = aws_iam_policy.lambda_custom.arn
+resource "aws_iam_role_policy_attachment" "enricher_custom" {
+  role       = aws_iam_role.lambda_enricher.name
+  policy_arn = aws_iam_policy.lambda_enricher_custom.arn
+}
+
+# Orchestrator Lambda - Basic execution + custom permissions
+resource "aws_iam_role_policy_attachment" "orchestrator_basic" {
+  role       = aws_iam_role.lambda_orchestrator.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy_attachment" "orchestrator_custom" {
+  role       = aws_iam_role.lambda_orchestrator.name
+  policy_arn = aws_iam_policy.lambda_orchestrator_custom.arn
 }
 
 

@@ -1,10 +1,10 @@
  resource "aws_cloudwatch_event_rule" "security_findings" {
     name        = "${var.project_name}-security-findings"
-    description = "Capture GuardDuty and Security Hub findings"
+    description = "Capture GuardDuty findings"
     
     event_pattern = jsonencode({
-      source = ["aws.guardduty", "aws.securityhub"]
-      detail-type = ["GuardDuty Finding", "Security Hub Findings - Imported"]
+      source = ["aws.guardduty"]
+      detail-type = ["GuardDuty Finding"]
     })
   }
 

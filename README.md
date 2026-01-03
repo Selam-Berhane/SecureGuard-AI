@@ -152,7 +152,7 @@ Automated responses triggered based on threat score and confidence:
 
 - AWS Account with appropriate permissions
 - Terraform >= 1.5.0
-- Python 3.9+
+- Python 3.12+
 - AWS CLI configured
 
 ## Deployment
